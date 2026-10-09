@@ -1006,7 +1006,7 @@
 <div class="model-loader" id="modelLoader">
   <div class="model-loader-card">
     <div class="model-loader-title">Загрузка локальной модели</div>
-    <div class="model-loader-sub" id="loaderSub">Qwen2.5-0.5B · ~280 МБ · WebGPU</div>
+    <div class="model-loader-sub" id="loaderSub">ЛОКУС · Qwen2.5-0.5B · ~280 МБ · WebGPU</div>
     <div class="model-progress-track">
       <div class="model-progress-bar" id="progressBar"></div>
     </div>
@@ -1318,40 +1318,17 @@
           <div class="simple-sub">Доступные локальные LLM (WebLLM)</div>
           <div class="home-list" id="modelsList">
             <div class="home-item" data-model="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">
-              <div class="home-item-av av-p2">0.5</div>
+              <div class="home-item-av av-p2">Л</div>
               <div class="home-item-body">
-                <div class="home-item-title">Qwen2.5-0.5B Instruct</div>
-                <div class="home-item-sub">~280 МБ · по умолчанию · очень быстрая</div>
+                <div class="home-item-title">ЛОКУС · Qwen2.5-0.5B</div>
+                <div class="home-item-sub">Единственная модель · ~280 МБ · школа и общие вопросы</div>
               </div>
               <div class="home-item-val">активна</div>
             </div>
-            <div class="home-item" data-model="SmolLM2-360M-Instruct-q4f16_1-MLC">
-              <div class="home-item-av av-p4">360</div>
-              <div class="home-item-body">
-                <div class="home-item-title">SmolLM2-360M Instruct</div>
-                <div class="home-item-sub">~210 МБ · самая лёгкая</div>
-              </div>
-              <div class="home-item-val">выбрать</div>
-            </div>
-            <div class="home-item" data-model="Llama-3.2-1B-Instruct-q4f16_1-MLC">
-              <div class="home-item-av av-p1">1B</div>
-              <div class="home-item-body">
-                <div class="home-item-title">Llama-3.2-1B Instruct</div>
-                <div class="home-item-sub">~880 МБ · лучше качество</div>
-              </div>
-              <div class="home-item-val">выбрать</div>
-            </div>
-            <div class="home-item" data-model="Qwen2.5-1.5B-Instruct-q4f16_1-MLC">
-              <div class="home-item-av av-p3">1.5</div>
-              <div class="home-item-body">
-                <div class="home-item-title">Qwen2.5-1.5B Instruct</div>
-                <div class="home-item-sub">~870 МБ · баланс</div>
-              </div>
-              <div class="home-item-val">выбрать</div>
-            </div>
           </div>
           <div class="info-block" style="margin-top:16px">
-            Модели скачиваются один раз и кэшируются браузером. После этого работают полностью офлайн.
+            Одна лёгкая модель. Скачивается один раз с huggingface.co, дальше работает офлайн.
+            Если сайт Hugging Face у тебя не открывается — загрузка не пройдёт (ошибка Failed to fetch).
           </div>
         </div>
       </div>
@@ -1407,19 +1384,11 @@
 - Не говори, что ты модель OpenAI, Anthropic, Google и т.п.
 - Формат: суть → шаги/детали → короткий вывод.`;
 
-  // Самая стабильная лёгкая модель WebLLM (~280 МБ)
+  // Только одна лёгкая модель (~280 МБ). Тяжёлые отключены.
   const DEFAULT_MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-  const FALLBACK_MODELS = [
-    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
-    "Llama-3.2-1B-Instruct-q4f16_1-MLC",
-  ];
   const MAX_CONTEXT_MESSAGES = 10;
-
   const MODEL_LABELS = {
-    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC": "Qwen2.5-0.5B · ~280 МБ",
-    "SmolLM2-360M-Instruct-q4f16_1-MLC": "SmolLM2-360M · ~210 МБ",
-    "Llama-3.2-1B-Instruct-q4f16_1-MLC": "Llama-3.2-1B · ~880 МБ",
-    "Qwen2.5-1.5B-Instruct-q4f16_1-MLC": "Qwen2.5-1.5B · ~870 МБ",
+    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC": "ЛОКУС · Qwen2.5-0.5B · ~280 МБ",
   };
 
   // ========== State ==========
@@ -1536,7 +1505,8 @@
       req.onsuccess = () => {
         if (req.result) {
           state.settings = { ...state.settings, ...req.result.value };
-          if (req.result.modelId) state.modelId = req.result.modelId;
+          // Всегда только лёгкая модель — игнорируем старые сохранения (Llama 1B и т.п.)
+          state.modelId = DEFAULT_MODEL;
         }
         resolve();
       };
@@ -1679,11 +1649,11 @@
     return text || "Идёт загрузка…";
   }
 
-  async function initWebLLM(modelId, tried) {
-    tried = tried || [];
+  async function initWebLLM() {
+    const modelId = DEFAULT_MODEL;
+    state.modelId = modelId;
     showLoader();
-    const label = MODEL_LABELS[modelId] || modelId;
-    $("loaderSub").textContent = label + " · WebGPU";
+    $("loaderSub").textContent = (MODEL_LABELS[modelId] || modelId) + " · WebGPU";
     setProgress(2, "старт", "Проверка WebGPU…");
     setBadge("loading", "загрузка модели…");
     $("modelError").style.display = "none";
@@ -1699,10 +1669,10 @@
 
     try {
       if (!navigator.gpu) {
-        throw new Error("WebGPU недоступен. Открой в Chrome или Edge 120+ (не Firefox/Safari).");
+        throw new Error("WebGPU недоступен. Открой в Chrome или Edge 120+ (не Firefox).");
       }
 
-      setProgress(4, "GPU", "Запрос WebGPU-адаптера…");
+      setProgress(5, "GPU", "Запрос WebGPU-адаптера…");
       try {
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("Нет подходящего GPU-адаптера");
@@ -1710,38 +1680,33 @@
         throw new Error("WebGPU: " + (gpuErr.message || gpuErr));
       }
 
-      setProgress(8, "библиотека", "Скачивание библиотеки WebLLM…");
+      setProgress(10, "библиотека", "Скачивание библиотеки WebLLM…");
       const webllm = await loadWebLLMLib();
       const CreateMLCEngine = webllm.CreateMLCEngine || webllm.default?.CreateMLCEngine;
       if (!CreateMLCEngine) throw new Error("CreateMLCEngine не найден");
 
       clearInterval(fakeTimer);
-      setProgress(15, "0 / ? МБ", "Скачивание модели (один раз, потом офлайн)…");
+      setProgress(18, "~280 МБ", "Скачивание модели Qwen2.5-0.5B (один раз)…\nНужен доступ к huggingface.co");
 
-      let lastPct = 15;
-      let lastStatus = "Скачивание модели…";
+      let lastPct = 18;
       const engine = await CreateMLCEngine(modelId, {
         initProgressCallback: (report) => {
           const text = report.text || report.message || "";
-          let pct = typeof report.progress === "number" ? report.progress * 100 : lastPct;
-
-          // WebLLM часто отдаёт 0 в начале fetch — держим минимум 15%
-          if (pct < 15) pct = 15 + Math.min(5, lastPct - 15 + 0.5);
-          // Масштабируем 0..1 → 15..98
+          let pct = lastPct;
           if (typeof report.progress === "number" && report.progress > 0) {
-            pct = 15 + report.progress * 83;
+            pct = 18 + report.progress * 80;
+          } else {
+            pct = Math.min(95, lastPct + 0.3);
           }
-          if (pct < lastPct) pct = lastPct + 0.2;
+          if (pct < lastPct) pct = lastPct;
           if (pct > 98) pct = 98;
           lastPct = pct;
-
-          lastStatus = humanProgressText(text);
-          // Пытаемся вытащить размер из текста WebLLM
+          const status = humanProgressText(text);
           const sizeMatch = text.match(/(\d+(\.\d+)?)\s*(MB|GB|МБ|ГБ)/i);
           const detail = sizeMatch
             ? sizeMatch[0] + " · " + Math.round(pct) + "%"
-            : Math.round(pct) + "% · идёт скачивание";
-          setProgress(pct, detail, lastStatus + (text ? "\n" + text.slice(0, 80) : ""));
+            : Math.round(pct) + "%";
+          setProgress(pct, detail, status + (text ? "\n" + text.slice(0, 90) : ""));
         },
       });
 
@@ -1749,35 +1714,36 @@
       state.engineType = "webllm";
       state.modelId = modelId;
       state.ready = true;
-      setProgress(100, "готово", "Модель скачана и готова. Можно работать офлайн.");
-      setBadge("ready", "WebLLM · " + (modelId.split("-")[0] || "ok"));
+      setProgress(100, "готово", "Модель скачана. Можно работать офлайн.");
+      setBadge("ready", "ЛОКУС · готов");
       updateSettingsInfo();
       updateModelsListUI();
+      saveSettings();
       setTimeout(() => hideLoader(), 500);
       return true;
     } catch (err) {
       clearInterval(fakeTimer);
       console.error("WebLLM error:", err);
-      const msg = err && err.message ? err.message : String(err);
-      tried.push(modelId);
+      let msg = err && err.message ? err.message : String(err);
+      const isFetch = /failed to fetch|networkerror|load failed|net::|cors/i.test(msg);
 
-      // Авто-fallback на другую модель
-      const next = FALLBACK_MODELS.find((m) => !tried.includes(m));
-      if (next) {
-        setProgress(15, "fallback", "Ошибка на " + modelId + ". Пробую " + next + "…");
-        await new Promise((r) => setTimeout(r, 600));
-        return initWebLLM(next, tried);
+      if (isFetch) {
+        showLoaderError(
+          "Сеть не дала скачать модель (Failed to fetch).\n\n" +
+          "Модель берётся с huggingface.co (~280 МБ).\n\n" +
+          "Что сделать:\n" +
+          "• Проверь интернет и отключи VPN/прокси, если мешает\n" +
+          "• Открой https://huggingface.co — если сайт не открывается, модель не скачается\n" +
+          "• Попробуй другую сеть (мобильный интернет)\n" +
+          "• Chrome/Edge, не инкогнито\n" +
+          "• Или «Только заглушка» — школьные ответы без нейросети"
+        );
+      } else {
+        showLoaderError(
+          "Не удалось загрузить модель.\n\nПричина: " + msg + "\n\n" +
+          "Обнови страницу (Ctrl+Shift+R) или нажми «Только заглушка»."
+        );
       }
-
-      showLoaderError(
-        "Не удалось загрузить модель после 15%.\n\n" +
-        "Причина: " + msg + "\n\n" +
-        "Что сделать:\n" +
-        "• Обнови страницу (Ctrl+Shift+R)\n" +
-        "• Открой в Chrome/Edge (не инкогнито, если блокирует кэш)\n" +
-        "• Проверь интернет на время первой загрузки\n" +
-        "• Или нажми «Только заглушка» — базовые ответы без LLM"
-      );
       return false;
     }
   }
@@ -1798,17 +1764,17 @@
   async function initEngine() {
     showLoader();
     setProgress(1, "старт", "Инициализация…");
+    state.modelId = DEFAULT_MODEL;
 
-    // 1. Try WebLLM (лёгкая модель по умолчанию)
+    // 1. Только лёгкая WebLLM-модель
     if (navigator.gpu) {
-      const ok = await initWebLLM(state.modelId);
+      const ok = await initWebLLM();
       if (ok) return;
     } else {
-      showLoaderError("WebGPU недоступен в этом браузере. Нужен Chrome/Edge 120+.");
+      showLoaderError("WebGPU недоступен. Нужен Chrome или Edge 120+.");
     }
 
-    // 2. Try Ollama
-    setProgress(5, "Ollama", "Проверка Ollama на localhost:11434…");
+    // 2. Тихая проверка Ollama (без смены текста ошибки, если WebLLM уже упал)
     if (await tryOllama()) {
       state.engineType = "ollama";
       state.ready = true;
@@ -1818,10 +1784,10 @@
       return;
     }
 
-    // 3. Fallback KB — оставляем модалку с кнопками, если была ошибка
+    // 3. Заглушка — кнопки уже показаны, если была ошибка WebLLM
     state.engineType = "kb";
     state.ready = true;
-    setBadge("ready", "заглушка KB");
+    setBadge("ready", "заглушка · школа");
     updateSettingsInfo();
     if ($("modelError").style.display === "none") {
       hideLoader();
@@ -1831,12 +1797,12 @@
   $("btnRetryModel").addEventListener("click", async () => {
     $("modelError").style.display = "none";
     $("modelActions").style.display = "none";
-    await initWebLLM(state.modelId);
+    await initWebLLM();
   });
   $("btnFallbackKB").addEventListener("click", () => {
     state.engineType = "kb";
     state.ready = true;
-    setBadge("ready", "заглушка KB");
+    setBadge("ready", "заглушка · школа");
     updateSettingsInfo();
     hideLoader();
   });
@@ -2291,16 +2257,13 @@
     }
   }
 
-  // ========== Model switch ==========
+  // Одна модель — клик только перезагружает, если ещё не готова
   document.querySelectorAll("#modelsList .home-item").forEach((el) => {
     el.addEventListener("click", async () => {
-      const mid = el.dataset.model;
-      if (!mid || mid === state.modelId && state.engineType === "webllm") return;
-      state.modelId = mid;
+      if (state.engineType === "webllm" && state.ready) return;
       state.ready = false;
       state.engine = null;
-      await saveSettings();
-      await initWebLLM(mid);
+      await initWebLLM();
     });
   });
 
