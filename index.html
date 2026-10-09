@@ -1395,15 +1395,24 @@
   "use strict";
 
   // ========== Constants ==========
-  const SYSTEM_PROMPT = `Ты — ЛОКУС, локальный офлайн-ассистент. Работаешь без интернета.
-Отвечай на русском языке, кратко и по делу.
-Если не знаешь — честно скажи.
-Если для ответа нужен интернет — предупреди и предложи офлайн-альтернативу.
-Не упоминай, что ты языковая модель от OpenAI/Anthropic и т.д.
-Форматируй ответы: суть → детали → следующий шаг.`;
+  const SYSTEM_PROMPT = `Ты — ЛОКУС, локальный офлайн-ассистент и школьный репетитор.
+Работаешь без интернета, прямо в браузере пользователя.
 
-  // Лёгкая модель по умолчанию (~280 МБ вместо ~880 МБ)
+Правила:
+- Отвечай на русском языке, ясно и по делу.
+- Хорошо объясняй школьные темы: математика, физика, химия, биология, история, география, русский язык, литература, информатика, английский (базовый).
+- Для задач показывай решение по шагам.
+- Если не уверен — честно скажи и предложи, как проверить.
+- Если нужен интернет — предупреди и дай офлайн-альтернативу.
+- Не говори, что ты модель OpenAI, Anthropic, Google и т.п.
+- Формат: суть → шаги/детали → короткий вывод.`;
+
+  // Самая стабильная лёгкая модель WebLLM (~280 МБ)
   const DEFAULT_MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+  const FALLBACK_MODELS = [
+    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+    "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+  ];
   const MAX_CONTEXT_MESSAGES = 10;
 
   const MODEL_LABELS = {
@@ -1535,20 +1544,40 @@
     });
   }
 
-  // ========== Fallback KB ==========
+  // ========== Fallback KB (школа + базовое) ==========
   const KB = [
     { keys: ["привет", "здравств", "хай", "добрый"],
-      reply: "Привет! Я **ЛОКУС** — работаю офлайн, без интернета.\nЧем помочь: текстом, кодом, идеями, разбором файла?" },
+      reply: "Привет! Я **ЛОКУС** — локальный репетитор и ассистент.\nМогу помочь со школой: математика, физика, химия, история, русский, информатика.\nЗадай тему или задачу." },
     { keys: ["кто ты", "что ты", "представься", "имя"],
-      reply: "Я — **ЛОКУС**, локальный ассистент.\nЗапущен прямо в браузере, данные не покидают устройство." },
+      reply: "Я — **ЛОКУС**, локальный ассистент и школьный помощник.\nРаботаю в браузере, данные не уходят в облако." },
     { keys: ["интернет", "сеть", "онлайн"],
-      reply: "Я работаю **без интернета** после загрузки модели.\nЕсли для задачи нужна сеть — предупрежу." },
+      reply: "После загрузки модели работаю **без интернета**.\nПервый раз модель нужно скачать один раз." },
     { keys: ["приват", "данные", "безопас"],
-      reply: "Никакой телеметрии, аккаунтов и облака.\nВсё остаётся на устройстве." },
+      reply: "Нет аккаунтов, телеметрии и облака.\nВсё остаётся на твоём устройстве." },
     { keys: ["код", "программ", "функци", "javascript", "python"],
-      reply: "Помогу с кодом офлайн:\n• объяснить фрагмент\n• найти ошибку\n• предложить рефакторинг\n\nВставь код — разберу." },
+      reply: "Помогу с кодом:\n• объяснить\n• найти ошибку\n• предложить исправление\n\nВставь фрагмент — разберём." },
+    { keys: ["математик", "уравнен", "дроб", "процент", "квадратн", "теорем", "геометр", "алгебр"],
+      reply: "Математика — давай по шагам.\nНапиши условие задачи (например: «реши 2x+5=17» или «площадь треугольника…»).\nЯ распишу решение и проверку." },
+    { keys: ["физик", "сила", "скорость", "ускорен", "закон ньютон", "энерги", "мощност", "давлен"],
+      reply: "Физика: напиши тему или задачу (формула, единицы, что найти).\nРазберём условие → формулы → подстановку → ответ с единицами." },
+    { keys: ["хими", "валентн", "реакци", "элемент", "таблиц менделеев", "молекул", "ион"],
+      reply: "Химия: укажи тему (реакции, валентность, расчёты по формулам).\nОбъясню просто и с примерами." },
+    { keys: ["биолог", "клетк", "фотосинтез", "днк", "эволюц", "организм"],
+      reply: "Биология: скажи класс/тему (клетка, генетика, экология…).\nОбъясню структура → суть → пример." },
+    { keys: ["истори", "войн", "революц", "древн", "средневеков", "век"],
+      reply: "История: напиши период или событие.\nКратко: когда → что произошло → почему важно." },
+    { keys: ["географ", "материк", "климат", "столиц", "океан", "страна"],
+      reply: "География: спроси столицу, климат, материк или явление — отвечу сжато и по делу." },
+    { keys: ["русск", "правопис", "пунктua", "синтаксис", "морфолог", "сочинен", "изложен"],
+      reply: "Русский язык: могу разобрать правило, предложение или план сочинения.\nПришли текст или вопрос." },
+    { keys: ["литератур", "стихотвор", "роман", "поэм", "автор", "пушкин", "толстой"],
+      reply: "Литература: тема, произведение или анализ образа — помогу с планом и кратким разбором." },
+    { keys: ["информатик", "алгоритм", "цикл", "переменн", "массив", "логик"],
+      reply: "Информатика: алгоритмы, циклы, переменные, логика — объясню с примером на простом языке." },
+    { keys: ["английск", "translate", "перевод", "english", "grammar"],
+      reply: "Английский (базовый): перевод, простое правило или пример предложения — пиши, разберём." },
     { keys: ["спасибо", "благодар", "круто"],
-      reply: "Рад помочь. Если нужно — продолжим." },
+      reply: "Рад помочь. Если нужно — продолжим по той же теме." },
     { keys: ["время", "который час"],
       reply: () => `Сейчас на устройстве: **${new Date().toLocaleString("ru-RU")}**` },
   ];
@@ -1635,29 +1664,45 @@
     throw lastErr || new Error("Не удалось загрузить WebLLM ни с одного CDN");
   }
 
-  async function initWebLLM(modelId) {
+  function humanProgressText(text) {
+    const t = (text || "").toLowerCase();
+    if (t.includes("fetch") || t.includes("download") || t.includes("loading model")) {
+      return "Скачивание файлов модели с Hugging Face…";
+    }
+    if (t.includes("shader") || t.includes("compile") || t.includes("webgpu")) {
+      return "Компиляция WebGPU-шейдеров…";
+    }
+    if (t.includes("cache") || t.includes("finish")) {
+      return "Сохранение в кэш браузера…";
+    }
+    if (t.includes("tokenizer")) return "Загрузка токенизатора…";
+    return text || "Идёт загрузка…";
+  }
+
+  async function initWebLLM(modelId, tried) {
+    tried = tried || [];
     showLoader();
     const label = MODEL_LABELS[modelId] || modelId;
     $("loaderSub").textContent = label + " · WebGPU";
-    setProgress(1, "старт", "Проверка WebGPU…");
+    setProgress(2, "старт", "Проверка WebGPU…");
     setBadge("loading", "загрузка модели…");
+    $("modelError").style.display = "none";
+    $("modelActions").style.display = "none";
 
-    // Fake slow progress while we wait for import / first bytes (чтобы не висело 0%)
-    let fakePct = 1;
+    let fakePct = 2;
     const fakeTimer = setInterval(() => {
-      if (fakePct < 12) {
-        fakePct += 0.4;
-        setProgress(fakePct, "подготовка…", "Загрузка движка…");
+      if (fakePct < 14) {
+        fakePct += 0.35;
+        setProgress(fakePct, "подготовка…", "Подключение к движку WebLLM…");
       }
-    }, 400);
+    }, 350);
 
     try {
       if (!navigator.gpu) {
-        throw new Error("WebGPU недоступен. Открой в Chrome или Edge 120+.");
+        throw new Error("WebGPU недоступен. Открой в Chrome или Edge 120+ (не Firefox/Safari).");
       }
 
-      // Быстрая проверка адаптера
-      setProgress(3, "GPU", "Запрос WebGPU-адаптера…");
+      setProgress(4, "GPU", "Запрос WebGPU-адаптера…");
       try {
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("Нет подходящего GPU-адаптера");
@@ -1665,25 +1710,38 @@
         throw new Error("WebGPU: " + (gpuErr.message || gpuErr));
       }
 
-      setProgress(6, "библиотека", "Скачивание WebLLM (~несколько МБ)…");
+      setProgress(8, "библиотека", "Скачивание библиотеки WebLLM…");
       const webllm = await loadWebLLMLib();
       const CreateMLCEngine = webllm.CreateMLCEngine || webllm.default?.CreateMLCEngine;
       if (!CreateMLCEngine) throw new Error("CreateMLCEngine не найден");
 
       clearInterval(fakeTimer);
-      setProgress(15, "модель", "Скачивание весов модели (один раз)…");
+      setProgress(15, "0 / ? МБ", "Скачивание модели (один раз, потом офлайн)…");
 
       let lastPct = 15;
+      let lastStatus = "Скачивание модели…";
       const engine = await CreateMLCEngine(modelId, {
         initProgressCallback: (report) => {
-          // report.progress: 0..1
+          const text = report.text || report.message || "";
           let pct = typeof report.progress === "number" ? report.progress * 100 : lastPct;
-          // Не даём прыгать назад и не показывать 0 после старта
-          if (pct < lastPct) pct = lastPct;
-          if (pct < 15 && lastPct >= 15) pct = lastPct;
-          lastPct = Math.max(lastPct, pct);
-          const text = report.text || report.message || "Загрузка модели…";
-          setProgress(lastPct, text.slice(0, 48), text);
+
+          // WebLLM часто отдаёт 0 в начале fetch — держим минимум 15%
+          if (pct < 15) pct = 15 + Math.min(5, lastPct - 15 + 0.5);
+          // Масштабируем 0..1 → 15..98
+          if (typeof report.progress === "number" && report.progress > 0) {
+            pct = 15 + report.progress * 83;
+          }
+          if (pct < lastPct) pct = lastPct + 0.2;
+          if (pct > 98) pct = 98;
+          lastPct = pct;
+
+          lastStatus = humanProgressText(text);
+          // Пытаемся вытащить размер из текста WebLLM
+          const sizeMatch = text.match(/(\d+(\.\d+)?)\s*(MB|GB|МБ|ГБ)/i);
+          const detail = sizeMatch
+            ? sizeMatch[0] + " · " + Math.round(pct) + "%"
+            : Math.round(pct) + "% · идёт скачивание";
+          setProgress(pct, detail, lastStatus + (text ? "\n" + text.slice(0, 80) : ""));
         },
       });
 
@@ -1691,17 +1749,35 @@
       state.engineType = "webllm";
       state.modelId = modelId;
       state.ready = true;
-      setProgress(100, "готово", "Модель загружена");
+      setProgress(100, "готово", "Модель скачана и готова. Можно работать офлайн.");
       setBadge("ready", "WebLLM · " + (modelId.split("-")[0] || "ok"));
       updateSettingsInfo();
       updateModelsListUI();
-      setTimeout(() => hideLoader(), 400);
+      setTimeout(() => hideLoader(), 500);
       return true;
     } catch (err) {
       clearInterval(fakeTimer);
       console.error("WebLLM error:", err);
       const msg = err && err.message ? err.message : String(err);
-      showLoaderError("Ошибка: " + msg + "\n\nПопробуй другую модель или «Только заглушка».");
+      tried.push(modelId);
+
+      // Авто-fallback на другую модель
+      const next = FALLBACK_MODELS.find((m) => !tried.includes(m));
+      if (next) {
+        setProgress(15, "fallback", "Ошибка на " + modelId + ". Пробую " + next + "…");
+        await new Promise((r) => setTimeout(r, 600));
+        return initWebLLM(next, tried);
+      }
+
+      showLoaderError(
+        "Не удалось загрузить модель после 15%.\n\n" +
+        "Причина: " + msg + "\n\n" +
+        "Что сделать:\n" +
+        "• Обнови страницу (Ctrl+Shift+R)\n" +
+        "• Открой в Chrome/Edge (не инкогнито, если блокирует кэш)\n" +
+        "• Проверь интернет на время первой загрузки\n" +
+        "• Или нажми «Только заглушка» — базовые ответы без LLM"
+      );
       return false;
     }
   }
