@@ -6,7 +6,7 @@
 <title>ЛОКУС — локальный ассистент</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
-<meta name="locus-version" content="3" />
+<meta name="locus-version" content="4" />
 <style>
   :root {
     --bg: #050505;
@@ -1673,7 +1673,7 @@
     state.modelId = modelId;
     showLoader();
     // Жёстко фиксируем подпись — без старых «Llama-3.2-1B»
-    $("loaderSub").textContent = "ЛОКУС · Qwen2.5-0.5B · ~280 МБ · v3";
+    $("loaderSub").textContent = "ЛОКУС · Qwen2.5-0.5B · ~280 МБ · v4";
     setProgress(2, "старт", "Проверка WebGPU…");
     setBadge("loading", "загрузка модели…");
     $("modelError").style.display = "none";
@@ -1725,28 +1725,57 @@
       if (!CreateMLCEngine) throw new Error("CreateMLCEngine не найден");
 
       clearInterval(fakeTimer);
-      setProgress(18, "~280 МБ", "Скачивание Qwen2.5-0.5B с Hugging Face…\nНужен доступ к huggingface.co");
+      setProgress(18, "~280 МБ", "Скачивание Qwen2.5-0.5B…");
 
       const lastPctRef = { v: 18 };
-      let engine;
-      try {
-        engine = await CreateMLCEngine(modelId, {
-          initProgressCallback: (r) => onProgress(r, lastPctRef),
-        });
-      } catch (firstErr) {
-        // Повтор с IndexedDB вместо Cache API (иногда Cache.add падает)
-        const msg1 = String(firstErr && firstErr.message ? firstErr.message : firstErr);
-        if (/Cache\.add|network error|Failed to fetch|NetworkError/i.test(msg1)) {
-          setProgress(20, "повтор", "Повтор загрузки через IndexedDB…");
-          const baseCfg = webllm.prebuiltAppConfig || { model_list: [] };
-          engine = await CreateMLCEngine(modelId, {
+      const baseCfg = webllm.prebuiltAppConfig || { model_list: [] };
+      const record = (baseCfg.model_list || []).find((m) => m.model_id === modelId);
+
+      // Несколько источников: HF → зеркало → IndexedDB-кэш
+      const attempts = [];
+      attempts.push({
+        name: "Hugging Face",
+        opts: { initProgressCallback: (r) => onProgress(r, lastPctRef) },
+      });
+      if (record && record.model) {
+        const mirrorModel = String(record.model).replace(
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        );
+        attempts.push({
+          name: "HF Mirror",
+          opts: {
             initProgressCallback: (r) => onProgress(r, lastPctRef),
-            appConfig: { ...baseCfg, cacheBackend: "indexeddb" },
-          });
-        } else {
-          throw firstErr;
+            appConfig: {
+              ...baseCfg,
+              cacheBackend: "indexeddb",
+              model_list: [{ ...record, model: mirrorModel, model_id: modelId }],
+            },
+          },
+        });
+      }
+      attempts.push({
+        name: "IndexedDB cache",
+        opts: {
+          initProgressCallback: (r) => onProgress(r, lastPctRef),
+          appConfig: { ...baseCfg, cacheBackend: "indexeddb" },
+        },
+      });
+
+      let engine = null;
+      let lastAttemptErr = null;
+      for (const attempt of attempts) {
+        try {
+          setProgress(lastPctRef.v, attempt.name, "Источник: " + attempt.name + "…");
+          engine = await CreateMLCEngine(modelId, attempt.opts);
+          lastAttemptErr = null;
+          break;
+        } catch (e) {
+          lastAttemptErr = e;
+          console.warn("Попытка", attempt.name, "не удалась:", e);
         }
       }
+      if (!engine) throw lastAttemptErr || new Error("Все источники модели недоступны");
 
       state.engine = engine;
       state.engineType = "webllm";
