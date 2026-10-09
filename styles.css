@@ -1,0 +1,39 @@
+:root {
+    --bg: #050505;
+    --bg-2: #0a0a0a;
+    --rail: #0c0c0c;
+    --panel: #0e0e0e;
+    --panel-2: #141414;
+    --panel-3: #1a1a1a;
+    --line: rgba(255,255,255,0.06);
+    --line-2: rgba(255,255,255,0.1);
+    --text: #ffffff;
+    --text-2: #b8b8b8;
+    --muted: #7a7a7a;
+    --muted-2: #4d4d4d;
+    --purple: #a855f7;
+    --purple-2: #c084fc;
+    --purple-dim: rgba(168,85,247,0.18);
+    --green: #4ade80;
+    --radius: 32px;
+    --radius-md: 22px;
+    --radius-sm: 14px;
+    --font: "Inter", system-ui, -apple-system, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Full styles are in the complete locus build — this is a bootstrap.
+     Replace with full styles.css from the release zip. */
+  body { display:flex; align-items:center; justify-content:center; }
+  .boot { max-width: 420px; padding: 32px; text-align: center; color: #b8b8b8; }
+  .boot h1 { color: #c084fc; font-size: 28px; margin-bottom: 12px; }
