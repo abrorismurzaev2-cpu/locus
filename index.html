@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ЛОКУС — локальный ассистент</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta name="locus-version" content="3" />
 <style>
   :root {
     --bg: #050505;
@@ -1649,11 +1652,28 @@
     return text || "Идёт загрузка…";
   }
 
+  async function clearModelCaches() {
+    try {
+      if (typeof caches !== "undefined") {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (_) {}
+    try {
+      // Сброс старых настроек модели (Llama и т.п.)
+      if (db) {
+        const tx = db.transaction("settings", "readwrite");
+        tx.objectStore("settings").put({ key: "app", value: state.settings, modelId: DEFAULT_MODEL });
+      }
+    } catch (_) {}
+  }
+
   async function initWebLLM() {
     const modelId = DEFAULT_MODEL;
     state.modelId = modelId;
     showLoader();
-    $("loaderSub").textContent = (MODEL_LABELS[modelId] || modelId) + " · WebGPU";
+    // Жёстко фиксируем подпись — без старых «Llama-3.2-1B»
+    $("loaderSub").textContent = "ЛОКУС · Qwen2.5-0.5B · ~280 МБ · v3";
     setProgress(2, "старт", "Проверка WebGPU…");
     setBadge("loading", "загрузка модели…");
     $("modelError").style.display = "none";
@@ -1666,6 +1686,25 @@
         setProgress(fakePct, "подготовка…", "Подключение к движку WebLLM…");
       }
     }, 350);
+
+    const onProgress = (report, lastPctRef) => {
+      const text = report.text || report.message || "";
+      let pct = lastPctRef.v;
+      if (typeof report.progress === "number" && report.progress > 0) {
+        pct = 18 + report.progress * 80;
+      } else {
+        pct = Math.min(95, lastPctRef.v + 0.3);
+      }
+      if (pct < lastPctRef.v) pct = lastPctRef.v;
+      if (pct > 98) pct = 98;
+      lastPctRef.v = pct;
+      const status = humanProgressText(text);
+      const sizeMatch = text.match(/(\d+(\.\d+)?)\s*(MB|GB|МБ|ГБ)/i);
+      const detail = sizeMatch
+        ? sizeMatch[0] + " · " + Math.round(pct) + "%"
+        : Math.round(pct) + "%";
+      setProgress(pct, detail, status + (text ? "\n" + text.slice(0, 90) : ""));
+    };
 
     try {
       if (!navigator.gpu) {
@@ -1686,29 +1725,28 @@
       if (!CreateMLCEngine) throw new Error("CreateMLCEngine не найден");
 
       clearInterval(fakeTimer);
-      setProgress(18, "~280 МБ", "Скачивание модели Qwen2.5-0.5B (один раз)…\nНужен доступ к huggingface.co");
+      setProgress(18, "~280 МБ", "Скачивание Qwen2.5-0.5B с Hugging Face…\nНужен доступ к huggingface.co");
 
-      let lastPct = 18;
-      const engine = await CreateMLCEngine(modelId, {
-        initProgressCallback: (report) => {
-          const text = report.text || report.message || "";
-          let pct = lastPct;
-          if (typeof report.progress === "number" && report.progress > 0) {
-            pct = 18 + report.progress * 80;
-          } else {
-            pct = Math.min(95, lastPct + 0.3);
-          }
-          if (pct < lastPct) pct = lastPct;
-          if (pct > 98) pct = 98;
-          lastPct = pct;
-          const status = humanProgressText(text);
-          const sizeMatch = text.match(/(\d+(\.\d+)?)\s*(MB|GB|МБ|ГБ)/i);
-          const detail = sizeMatch
-            ? sizeMatch[0] + " · " + Math.round(pct) + "%"
-            : Math.round(pct) + "%";
-          setProgress(pct, detail, status + (text ? "\n" + text.slice(0, 90) : ""));
-        },
-      });
+      const lastPctRef = { v: 18 };
+      let engine;
+      try {
+        engine = await CreateMLCEngine(modelId, {
+          initProgressCallback: (r) => onProgress(r, lastPctRef),
+        });
+      } catch (firstErr) {
+        // Повтор с IndexedDB вместо Cache API (иногда Cache.add падает)
+        const msg1 = String(firstErr && firstErr.message ? firstErr.message : firstErr);
+        if (/Cache\.add|network error|Failed to fetch|NetworkError/i.test(msg1)) {
+          setProgress(20, "повтор", "Повтор загрузки через IndexedDB…");
+          const baseCfg = webllm.prebuiltAppConfig || { model_list: [] };
+          engine = await CreateMLCEngine(modelId, {
+            initProgressCallback: (r) => onProgress(r, lastPctRef),
+            appConfig: { ...baseCfg, cacheBackend: "indexeddb" },
+          });
+        } else {
+          throw firstErr;
+        }
+      }
 
       state.engine = engine;
       state.engineType = "webllm";
@@ -1725,23 +1763,25 @@
       clearInterval(fakeTimer);
       console.error("WebLLM error:", err);
       let msg = err && err.message ? err.message : String(err);
-      const isFetch = /failed to fetch|networkerror|load failed|net::|cors/i.test(msg);
+      const isNet = /failed to fetch|networkerror|load failed|net::|cors|Cache\.add|network error/i.test(msg);
 
-      if (isFetch) {
+      if (isNet) {
         showLoaderError(
-          "Сеть не дала скачать модель (Failed to fetch).\n\n" +
-          "Модель берётся с huggingface.co (~280 МБ).\n\n" +
-          "Что сделать:\n" +
-          "• Проверь интернет и отключи VPN/прокси, если мешает\n" +
-          "• Открой https://huggingface.co — если сайт не открывается, модель не скачается\n" +
-          "• Попробуй другую сеть (мобильный интернет)\n" +
-          "• Chrome/Edge, не инкогнито\n" +
-          "• Или «Только заглушка» — школьные ответы без нейросети"
+          "Не удалось скачать модель (сеть / Cache.add).\n\n" +
+          "Модель ~280 МБ качается с huggingface.co.\n\n" +
+          "Проверь:\n" +
+          "1) Открой https://huggingface.co — если не открывается, модель не скачается\n" +
+          "2) Другая сеть или мобильный интернет\n" +
+          "3) Отключи VPN, если мешает\n" +
+          "4) Свободно на диске > 1 ГБ\n" +
+          "5) Ctrl+Shift+R и кнопка «Повторить»\n\n" +
+          "Или «Только заглушка» — ответы по школе без нейросети.\n\n" +
+          "Тех.текст: " + msg.slice(0, 120)
         );
       } else {
         showLoaderError(
           "Не удалось загрузить модель.\n\nПричина: " + msg + "\n\n" +
-          "Обнови страницу (Ctrl+Shift+R) или нажми «Только заглушка»."
+          "Ctrl+Shift+R или «Только заглушка»."
         );
       }
       return false;
@@ -1797,6 +1837,8 @@
   $("btnRetryModel").addEventListener("click", async () => {
     $("modelError").style.display = "none";
     $("modelActions").style.display = "none";
+    setProgress(1, "сброс", "Очистка кэша и повтор…");
+    await clearModelCaches();
     await initWebLLM();
   });
   $("btnFallbackKB").addEventListener("click", () => {
